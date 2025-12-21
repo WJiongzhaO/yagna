@@ -260,6 +260,7 @@ members = [
   "test-utils/test-framework/framework-mocks",
   "core/healthcheck",
   "core/staking",
+  "consensus-provider",
 ]
 
 [workspace.dependencies]

@@ -1,0 +1,97 @@
+{
+  "consensus": {
+    "server_endpoint": "http://localhost:3000",
+    "task_timeout_seconds": 300,
+    "max_concurrent_tasks": 3
+  },
+  "providers": [
+    {
+      "node_id": "honest-1",
+      "name": "诚实节点1",
+      "cheating_mode": null,
+      "api_port": 8081,
+      "gpu_memory_gb": 8.0,
+      "cpu_cores": 4,
+      "max_active_tasks": 2
+    },
+    {
+      "node_id": "honest-2",
+      "name": "诚实节点2",
+      "cheating_mode": null,
+      "api_port": 8082,
+      "gpu_memory_gb": 8.0,
+      "cpu_cores": 4,
+      "max_active_tasks": 2
+    },
+    {
+      "node_id": "honest-3",
+      "name": "诚实节点3",
+      "cheating_mode": null,
+      "api_port": 8083,
+      "gpu_memory_gb": 8.0,
+      "cpu_cores": 4,
+      "max_active_tasks": 2
+    },
+    {
+      "node_id": "wrong-result-cheater",
+      "name": "错误结果作弊节点",
+      "cheating_mode": "WrongResult",
+      "api_port": 8084,
+      "gpu_memory_gb": 8.0,
+      "cpu_cores": 4,
+      "max_active_tasks": 2
+    },
+    {
+      "node_id": "delay-cheater",
+      "name": "延迟执行作弊节点",
+      "cheating_mode": "DelayExecution",
+      "api_port": 8085,
+      "gpu_memory_gb": 8.0,
+      "cpu_cores": 4,
+      "max_active_tasks": 2
+    },
+    {
+      "node_id": "terminate-cheater",
+      "name": "提前终止作弊节点",
+      "cheating_mode": "EarlyTermination",
+      "api_port": 8086,
+      "gpu_memory_gb": 8.0,
+      "cpu_cores": 4,
+      "max_active_tasks": 2
+    },
+    {
+      "node_id": "smart-cheater",
+      "name": "智能作弊节点",
+      "cheating_mode": "SmartCheating",
+      "api_port": 8087,
+      "gpu_memory_gb": 8.0,
+      "cpu_cores": 4,
+      "max_active_tasks": 2
+    }
+  ],
+  "logging": {
+    "level": "info",
+    "format": "json",
+    "file_enabled": true,
+    "file_path": "logs/cheating_demo.log",
+    "max_file_size_mb": 10,
+    "max_files": 5
+  },
+  "task_types": {
+    "matrix_multiplication": {
+      "default_size": 4,
+      "max_size": 10,
+      "min_size": 2
+    },
+    "vector_addition": {
+      "default_size": 1000,
+      "max_size": 10000,
+      "min_size": 10
+    },
+    "simple_inference": {
+      "default_model_size": 100,
+      "max_model_size": 1000,
+      "min_model_size": 10
+    }
+  }
+}

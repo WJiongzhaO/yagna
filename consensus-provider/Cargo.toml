@@ -1,0 +1,41 @@
+[package]
+name = "consensus-provider"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+# 异步运行时 (独立版本，避免workspace冲突)
+tokio = { version = "1.0", features = ["full", "rt-multi-thread", "macros"] }
+
+# Web 框架和 API
+warp = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# 命令行参数解析
+clap = "3.0"
+
+# 日志系统
+log = "0.4"
+env_logger = "0.9"
+
+# 数学计算库（用于矩阵运算等）
+ndarray = "0.15"
+rand = "0.8"
+
+# HTTP 客户端（用于与共识服务器通信）
+reqwest = { version = "0.11", features = ["json"] }
+
+# 异步工具
+futures = "0.3"
+futures-util = "0.3"
+
+# UUID 生成
+uuid = { version = "0.8", features = ["v4"] }
+
+# 时间处理
+chrono = { version = "0.4", features = ["serde"] }
+
+# 错误处理
+anyhow = "1.0"
+thiserror = "1.0"
