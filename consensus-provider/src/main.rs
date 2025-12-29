@@ -1,4 +1,5 @@
 use consensus_provider::*;
+use crate::provider_node::ProviderNode;
 use clap::{App, Arg};
 
 /// 主函数 - Consensus Provider 演示程序
@@ -10,7 +11,7 @@ async fn main() {
         .about("演示多节点算力任务验证共识机制")
         .arg(
             Arg::with_name("demo")
-                .short("d")
+                .short('d')
                 .long("demo")
                 .value_name("TYPE")
                 .help("运行演示案例: basic(基础功能), multi(多节点), cheating(作弊检测), full(完整演示)")
@@ -19,7 +20,7 @@ async fn main() {
         )
         .arg(
             Arg::with_name("config")
-                .short("c")
+                .short('c')
                 .long("config")
                 .value_name("FILE")
                 .help("配置文件路径")
@@ -28,12 +29,12 @@ async fn main() {
         )
         .arg(
             Arg::with_name("server")
-                .short("s")
+                .short('s')
                 .long("server")
                 .value_name("ENDPOINT")
                 .help("共识服务器端点")
                 .takes_value(true)
-                .default_value("http://localhost:3000")
+                .default_value("http://localhost:3333")
         );
 
     let matches = app.get_matches();
@@ -96,7 +97,7 @@ async fn run_multi_provider_demo(config_file: &str, server_endpoint: &str) {
     println!();
 
     // 加载配置
-    let config = match AppConfig::load_from_file(config_file) {
+    let config = match AppConfig::from_file(config_file) {
         Ok(config) => config,
         Err(e) => {
             eprintln!("❌ 加载配置文件失败: {}", e);
@@ -172,7 +173,7 @@ async fn run_cheating_demo(config_file: &str, server_endpoint: &str) {
     println!();
 
     // 加载配置
-    let config = match AppConfig::load_from_file(config_file) {
+    let config = match AppConfig::from_file(config_file) {
         Ok(config) => config,
         Err(e) => {
             eprintln!("❌ 加载配置文件失败: {}", e);
