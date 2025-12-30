@@ -3,12 +3,12 @@
 //! 这个模块提供 REST API 和 WebSocket 接口，用于监控 Provider 节点状态、
 //! 查看任务执行情况和管理节点配置。
 
-use warp::{Filter, Reply};
+use warp::Filter;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
-use futures_util::{SinkExt, StreamExt};
+use tokio::sync::RwLock;
+use futures_util::{stream::StreamExt, SinkExt};
 use crate::types::*;
 use crate::consensus_client::ConsensusStats;
 use crate::cheating_modes::CheatingStatistics;
@@ -405,7 +405,6 @@ async fn reset_stats_handler(state: Arc<RwLock<ServerState>>) -> Result<impl war
 
 /// WebSocket 连接处理器
 async fn handle_websocket(websocket: warp::ws::WebSocket, state: Arc<RwLock<ServerState>>) {
-    use futures_util::{SinkExt, StreamExt};
 
     log::info!("新的 WebSocket 连接建立");
 

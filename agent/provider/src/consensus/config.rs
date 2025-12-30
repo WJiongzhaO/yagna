@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use crate::cheating_modes::CheatingMode;
+use super::cheating_modes::CheatingMode;
 
 /// 应用配置
 #[derive(Debug, Clone, Deserialize, Serialize)]

@@ -10,14 +10,39 @@ use tokio::sync::Mutex;
 use anyhow::Error;
 use crate::types::*;
 
-/// 共识客户端
+// Yagna Market API 数据结构
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MarketOffer {
+    pub properties: serde_json::Value,
+    pub constraints: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Agreement {
+    pub agreement_id: String,
+    pub demand: serde_json::Value,
+    pub offer: serde_json::Value,
+    pub state: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Activity {
+    pub activity_id: String,
+    pub agreement_id: String,
+}
+
+/// 共识客户端 - 集成到 Yagna Market 系统
 pub struct ConsensusClient {
     /// HTTP 客户端
     client: Client,
-    /// 服务器端点
+    /// yagna API 端点
     server_endpoint: String,
     /// 本地 Provider ID
     provider_id: String,
+    /// 市场订阅 ID
+    subscription_id: Option<String>,
+    /// 活跃的协议列表 (agreement_id -> activity_id)
+    active_agreements: Arc<Mutex<HashMap<String, String>>>,
     /// 待处理的任务队列
     pending_tasks: Arc<Mutex<HashMap<String, ConsensusTask>>>,
     /// 已完成的结果缓存
@@ -30,6 +55,8 @@ impl Clone for ConsensusClient {
             client: Client::new(), // 创建新的客户端
             server_endpoint: self.server_endpoint.clone(),
             provider_id: self.provider_id.clone(),
+            subscription_id: self.subscription_id.clone(),
+            active_agreements: Arc::new(Mutex::new(HashMap::new())), // 不克隆协议
             pending_tasks: Arc::new(Mutex::new(HashMap::new())), // 不克隆队列
             completed_results: Arc::new(Mutex::new(HashMap::new())), // 不克隆缓存
         }
@@ -47,112 +74,253 @@ impl ConsensusClient {
             client,
             server_endpoint: server_endpoint.to_string(),
             provider_id: String::new(), // 将在注册时设置
+            subscription_id: None,
+            active_agreements: Arc::new(Mutex::new(HashMap::new())),
             pending_tasks: Arc::new(Mutex::new(HashMap::new())),
             completed_results: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
-    /// 注册 Provider 节点到共识网络
+    /// 发布 Market Offer - 替代简单的provider注册
     pub async fn register_provider(&mut self, provider_id: &str) -> Result<(), Error> {
         self.provider_id = provider_id.to_string();
 
-        let registration_data = ProviderRegistration {
-            provider_id: provider_id.to_string(),
-            capabilities: vec![
-                "matrix_multiplication".to_string(),
-                "vector_addition".to_string(),
-                "simple_inference".to_string(),
-            ],
-            max_concurrent_tasks: 3,
-            registered_at: chrono::Utc::now(),
-        };
+        // 创建market offer
+        let offer = self.build_market_offer(provider_id)?;
 
-        let url = format!("{}/providers/register", self.server_endpoint);
+        // 发布到yagna market
+        let url = format!("{}/market/offers", self.server_endpoint);
         let response = self.client
             .post(&url)
-            .json(&registration_data)
+            .json(&offer)
             .send()
             .await?;
 
         if response.status().is_success() {
-            log::info!("Provider {} 成功注册到共识网络", provider_id);
+            let subscription_result: serde_json::Value = response.json().await?;
+            if let Some(subscription_id) = subscription_result.get("subscriptionId") {
+                self.subscription_id = Some(subscription_id.as_str().unwrap_or("").to_string());
+            }
+            log::info!("Provider {} 成功发布market offer", provider_id);
             Ok(())
         } else {
             let error_msg = response.text().await?;
-            Err(anyhow::anyhow!("注册失败: {}", error_msg))
+            Err(anyhow::anyhow!("发布market offer失败: {}", error_msg))
         }
     }
 
-    /// 轮询获取新任务
+    /// 构建market offer
+    fn build_market_offer(&self, provider_id: &str) -> Result<MarketOffer, Error> {
+        let properties = serde_json::json!({
+            "golem.node.id.name": provider_id,
+            "golem.srv.comp.task_package": format!("hash:sha3:{}", provider_id),
+            "golem.srv.comp.expiration": (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp(),
+            "golem.srv.caps.multi-activity": true,
+            "golem.inf.cpu.cores.available": 4,
+            "golem.inf.mem.gib": 8.0,
+            "golem.inf.storage.gib": 100.0,
+            "golem.runtime.name": "consensus-provider",
+            "golem.runtime.version": "0.1.0"
+        });
+
+        Ok(MarketOffer {
+            properties,
+            constraints: r#"(&
+                (golem.inf.mem.gib>0.5)
+                (golem.inf.storage.gib>1.0)
+                (golem.inf.cpu.cores.available>0)
+            )"#.to_string(),
+        })
+    }
+
+    /// 轮询协议和任务 - 基于yagna market协议
     pub async fn poll_task(&self) -> Option<ConsensusTask> {
-        let url = format!("{}/tasks/poll/{}", self.server_endpoint, self.provider_id);
+        // 首先检查是否有新的协议
+        if let Some(agreement) = self.poll_agreements().await {
+            // 为协议创建activity
+            if let Ok(activity_id) = self.create_activity(&agreement.agreement_id).await {
+                // 从协议中提取任务信息
+                if let Some(task) = self.extract_task_from_agreement(&agreement, &activity_id).await {
+                    let mut pending = self.pending_tasks.lock().await;
+                    pending.insert(task.id.clone(), task.clone());
+
+                    let mut agreements = self.active_agreements.lock().await;
+                    agreements.insert(agreement.agreement_id, activity_id);
+
+                    return Some(task);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// 轮询新的协议
+    async fn poll_agreements(&self) -> Option<Agreement> {
+        let url = format!("{}/market/agreements?state=Pending", self.server_endpoint);
 
         match self.client.get(&url).send().await {
             Ok(response) => {
                 if response.status().is_success() {
-                    match response.json::<ConsensusTask>().await {
-                        Ok(task) => {
-                            log::info!("收到新任务: {} (类型: {})", task.id, task.task_type.as_str());
-
-                            // 将任务添加到待处理队列
-                            let mut pending = self.pending_tasks.lock().await;
-                            pending.insert(task.id.clone(), task.clone());
-
-                            Some(task)
-                        }
-                        Err(e) => {
-                            log::warn!("解析任务数据失败: {}", e);
-                            None
+                    if let Ok(agreements) = response.json::<Vec<Agreement>>().await {
+                        for agreement in agreements {
+                            // 自动批准协议
+                            if let Ok(_) = self.approve_agreement(&agreement.agreement_id).await {
+                                log::info!("批准协议: {}", agreement.agreement_id);
+                                return Some(agreement);
+                            }
                         }
                     }
-                } else if response.status() == reqwest::StatusCode::NO_CONTENT {
-                    // 没有新任务
-                    None
-                } else {
-                    log::warn!("获取任务失败: HTTP {}", response.status());
-                    None
                 }
             }
             Err(e) => {
-                log::warn!("网络请求失败: {}", e);
-                None
+                log::warn!("轮询协议失败: {}", e);
             }
+        }
+        None
+    }
+
+    /// 批准协议
+    async fn approve_agreement(&self, agreement_id: &str) -> Result<(), Error> {
+        let url = format!("{}/market/agreements/{}/approve", self.server_endpoint, agreement_id);
+        let response = self.client.post(&url).send().await?;
+
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("批准协议失败"))
         }
     }
 
-    /// 提交任务执行结果
-    pub async fn submit_result(&self, task_id: &str, result: &TaskResult) -> Result<(), Error> {
-        let url = format!("{}/results/submit", self.server_endpoint);
-
-        let submission = ResultSubmission {
-            task_id: task_id.to_string(),
-            provider_id: self.provider_id.clone(),
-            result: result.clone(),
-            submitted_at: chrono::Utc::now(),
-        };
-
-        let response = self.client
-            .post(&url)
-            .json(&submission)
-            .send()
-            .await?;
+    /// 为协议创建activity
+    async fn create_activity(&self, agreement_id: &str) -> Result<String, Error> {
+        let url = format!("{}/activity/agreements/{}", self.server_endpoint, agreement_id);
+        let response = self.client.post(&url).send().await?;
 
         if response.status().is_success() {
-            log::info!("任务 {} 结果提交成功", task_id);
+            let activity: Activity = response.json().await?;
+            log::info!("创建activity: {}", activity.activity_id);
+            Ok(activity.activity_id)
+        } else {
+            Err(anyhow::anyhow!("创建activity失败"))
+        }
+    }
 
-            // 从待处理队列移除任务
-            let mut pending = self.pending_tasks.lock().await;
-            pending.remove(task_id);
+    /// 从协议中提取任务信息
+    async fn extract_task_from_agreement(&self, agreement: &Agreement, _activity_id: &str) -> Option<ConsensusTask> {
+        // 从协议的demand中提取任务参数
+        if let Some(task_type) = agreement.demand.get("task_type") {
+            let task_type_str = task_type.as_str().unwrap_or("matrix_multiplication");
 
-            // 添加到已完成结果缓存
-            let mut completed = self.completed_results.lock().await;
-            completed.insert(task_id.to_string(), result.clone());
+            let task_type_enum = match task_type_str {
+                "matrix_multiplication" => {
+                    let size = agreement.demand.get("size").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
+                    TaskType::MatrixMultiplication { size }
+                }
+                "vector_addition" => {
+                    let size = agreement.demand.get("size").and_then(|v| v.as_u64()).unwrap_or(3) as usize;
+                    TaskType::VectorAddition { size }
+                }
+                "simple_inference" => {
+                    let size = agreement.demand.get("model_size").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
+                    TaskType::SimpleInference { model_size: size }
+                }
+                _ => TaskType::MatrixMultiplication { size: 2 }
+            };
 
+            // 生成任务数据（这里使用简化版本，实际应该从协议参数中解析）
+            let data = match &task_type_enum {
+                TaskType::MatrixMultiplication { size: _ } => {
+                    vec![1.0f64.to_le_bytes(), 2.0f64.to_le_bytes(), 3.0f64.to_le_bytes(), 4.0f64.to_le_bytes(),
+                         5.0f64.to_le_bytes(), 6.0f64.to_le_bytes(), 7.0f64.to_le_bytes(), 8.0f64.to_le_bytes()].concat()
+                }
+                TaskType::VectorAddition { size: _ } => {
+                    vec![1.0f64.to_le_bytes(), 2.0f64.to_le_bytes(), 3.0f64.to_le_bytes(),
+                         4.0f64.to_le_bytes(), 5.0f64.to_le_bytes(), 6.0f64.to_le_bytes()].concat()
+                }
+                TaskType::SimpleInference { model_size: _ } => {
+                    (0..50).flat_map(|_| 1.0f64.to_le_bytes()).collect::<Vec<u8>>() // 简化的输入数据
+                }
+            };
+
+            let task = ConsensusTask::new(
+                task_type_enum,
+                data,
+                300, // 5分钟超时
+            );
+
+            log::info!("从协议 {} 提取任务: {} (类型: {})", agreement.agreement_id, task.id, task.task_type.as_str());
+            Some(task)
+        } else {
+            None
+        }
+    }
+
+    /// 提交任务执行结果 - 通过activity API
+    pub async fn submit_result(&self, task_id: &str, result: &TaskResult) -> Result<(), Error> {
+        // 查找对应的activity
+        let agreements = self.active_agreements.lock().await;
+        if let Some(activity_id) = agreements.get(task_id) {
+            // 提交结果到activity
+            let url = format!("{}/activity/{}/results", self.server_endpoint, activity_id);
+
+            #[derive(serde::Serialize)]
+            struct ActivityResult {
+                pub result: Vec<u8>,
+                pub stdout: Option<String>,
+                pub stderr: Option<String>,
+            }
+
+            let activity_result = ActivityResult {
+                result: result.result.clone(),
+                stdout: Some(format!("任务执行成功，耗时: {}ms", result.execution_time_ms)),
+                stderr: if result.success {
+                    None
+                } else {
+                    Some(result.error_message.clone().unwrap_or_default())
+                },
+            };
+
+            let response = self.client
+                .post(&url)
+                .json(&activity_result)
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                log::info!("任务 {} 结果提交成功 (activity: {})", task_id, activity_id);
+
+                // 清理资源
+                let mut pending = self.pending_tasks.lock().await;
+                pending.remove(task_id);
+                let mut completed = self.completed_results.lock().await;
+                completed.insert(task_id.to_string(), result.clone());
+
+                // 销毁activity
+                let _ = self.destroy_activity(activity_id).await;
+
+                Ok(())
+            } else {
+                let error_msg = response.text().await?;
+                log::error!("提交activity结果失败: {}", error_msg);
+                Err(anyhow::anyhow!("提交activity结果失败: {}", error_msg))
+            }
+        } else {
+            Err(anyhow::anyhow!("找不到任务对应的activity"))
+        }
+    }
+
+    /// 销毁activity
+    async fn destroy_activity(&self, activity_id: &str) -> Result<(), Error> {
+        let url = format!("{}/activity/{}", self.server_endpoint, activity_id);
+        let response = self.client.delete(&url).send().await?;
+
+        if response.status().is_success() {
+            log::info!("销毁activity: {}", activity_id);
             Ok(())
         } else {
-            let error_msg = response.text().await?;
-            log::error!("提交结果失败: {}", error_msg);
-            Err(anyhow::anyhow!("提交结果失败: {}", error_msg))
+            log::error!("销毁activity失败");
+            Err(anyhow::anyhow!("销毁activity失败"))
         }
     }
 
@@ -345,7 +513,7 @@ pub struct ClientConfig {
 impl Default for ClientConfig {
     fn default() -> Self {
         Self {
-            server_endpoint: "http://localhost:3000".to_string(),
+            server_endpoint: "http://localhost:7465".to_string(),
             request_timeout_seconds: 30,
             max_retries: 3,
             retry_interval_ms: 1000,
@@ -364,7 +532,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_client_creation() {
-        let client = ConsensusClient::new("http://localhost:3000").await;
+        let client = ConsensusClient::new("http://localhost:7465").await;
         assert!(client.is_ok());
     }
 

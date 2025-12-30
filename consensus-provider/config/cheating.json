@@ -1,6 +1,6 @@
 {
   "consensus": {
-    "server_endpoint": "http://localhost:3000",
+    "server_endpoint": "http://localhost:7465",
     "task_timeout_seconds": 300,
     "max_concurrent_tasks": 3
   },
@@ -95,3 +95,5 @@
     }
   }
 }
+
+

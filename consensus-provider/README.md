@@ -451,6 +451,42 @@ cargo run --release -- --demo basic
 - [DEMO_GUIDE.md](DEMO_GUIDE.md) - 完整演示指南
 - `demo.sh` / `demo.bat` - 自动化演示脚本
 
+### 🔗 与 Yagna 集成测试
+
+**独立演示模式** (无需 yagna 服务器):
+```bash
+# 基础功能演示
+cargo run --release -- --demo basic
+
+# 多节点演示 (模拟多个provider)
+cargo run --release -- --demo multi
+
+# 作弊检测演示
+cargo run --release -- --demo cheating
+```
+
+**完整集成模式** (需要启动 yagna 服务器):
+```bash
+# 终端1: 启动 yagna 服务
+cd /path/to/yagna
+cargo build --release
+./target/release/yagna service run --api-url http://localhost:7465
+
+# 终端2: 启动 consensus-provider (连接到yagna)
+cd consensus-provider
+cargo run --release -- --demo basic --server http://localhost:7465
+```
+
+### 🔄 集成状态
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| **Market Offer 发布** | ✅ 已实现 | 替代简单的provider注册 |
+| **Agreement 协商** | ✅ 已实现 | 自动批准匹配的协议 |
+| **Activity 创建** | ✅ 已实现 | 为协议创建执行环境 |
+| **结果提交** | ✅ 已实现 | 通过Activity API提交 |
+| **作弊行为模拟** | ✅ 保持 | 完全兼容新的架构 |
+
 ### 演示模式详解
 
 #### 1. **基础功能演示** (`--demo basic`)
@@ -537,6 +573,56 @@ cargo run --release -- --demo basic
 - [Yagna](https://github.com/golemfactory/yagna) - 去中心化计算平台
 - [Golem Network](https://golem.network/) - 去中心化超级计算机网络
 - [Akash Network](https://akash.network/) - 去中心化云平台
+
+## 🎉 集成成果总结
+
+### ✅ 已完成的 Yagna 集成工作
+
+**阶段1: 市场集成基础** 🔧
+- ✅ 修改了 `ConsensusClient` 结构，添加了 `subscription_id` 和 `active_agreements`
+- ✅ 实现了 `publish_offer()` 方法，替代简单的provider注册
+- ✅ 添加了 yagna market API 的数据结构定义
+
+**阶段2: 协议协商系统** 🤝
+- ✅ 实现了 `poll_agreements()` 方法，监听新的协议
+- ✅ 添加了 `approve_agreement()` 自动批准协议
+- ✅ 集成了 `create_activity()` 为协议创建执行环境
+
+**阶段3: 任务执行集成** ⚙️
+- ✅ 修改了 `poll_task()` 使用协议而不是直接任务
+- ✅ 实现了 `extract_task_from_agreement()` 从协议提取任务
+- ✅ 更新了 `submit_result()` 通过Activity API提交结果
+
+**兼容性保持** ✅
+- ✅ 所有作弊行为模拟功能完全保持
+- ✅ API监控接口继续可用
+- ✅ 演示模式向后兼容
+
+### 🎯 架构对比
+
+| 方面 | 集成前 | 集成后 |
+|------|--------|--------|
+| **注册方式** | 虚拟API | Market Offer 发布 |
+| **任务获取** | 直接轮询 | Agreement 协商 |
+| **执行环境** | 简化为法 | Activity + ExeUnit |
+| **结果提交** | 虚拟端点 | Activity API |
+| **服务器依赖** | 无 | Yagna Market |
+
+### 🚀 使用方式
+
+**教学演示模式** (推荐):
+```bash
+cargo run --release -- --demo basic  # 无需服务器，功能完整
+```
+
+**生产集成模式**:
+```bash
+# 启动yagna服务
+yagna service run --api-url http://localhost:7465
+
+# 连接consensus-provider
+cargo run --release -- --demo basic --server http://localhost:7465
+```
 
 ## 🎓 学术用途
 

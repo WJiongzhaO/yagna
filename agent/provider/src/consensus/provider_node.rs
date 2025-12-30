@@ -5,15 +5,13 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
-use tokio::time::{self, Duration};
-use crate::types::*;
-use crate::task_executor::{TaskExecutor, TaskExecution};
-use crate::cheating_modes::CheatingSimulator;
-use crate::consensus_client::ConsensusClient;
-use crate::api_server::{ApiServer, ProviderStatusInfo};
-use crate::logging::*;
-use crate::config::ProviderConfig;
+use tokio::sync::RwLock;
+use tokio::time::Duration;
+use super::types::*;
+use super::task_executor::{TaskExecutor, TaskExecution};
+use super::consensus_client::ConsensusClient;
+use super::logging::*;
+use super::config::ProviderConfig;
 
 /// Provider 节点
 pub struct ProviderNode {
@@ -23,8 +21,6 @@ pub struct ProviderNode {
     task_executor: TaskExecutor,
     /// 共识客户端
     consensus_client: ConsensusClient,
-    /// API 服务器
-    api_server: ApiServer,
     /// 活跃任务追踪器
     active_tasks: Arc<RwLock<HashMap<String, TaskExecution>>>,
     /// 节点统计信息
@@ -42,12 +38,9 @@ impl ProviderNode {
         let task_executor = TaskExecutor::new();
 
         // 创建共识客户端
-        let consensus_client = ConsensusClient::new("http://localhost:3000").await?;
+        let consensus_client = ConsensusClient::new("http://localhost:7465").await?;
         let mut consensus_client_clone = consensus_client.clone();
         consensus_client_clone.register_provider(&config.node_id).await?;
-
-        // 创建 API 服务器
-        let api_server = ApiServer::new(config.api_port);
 
         // 初始化统计信息
         let stats = NodeStats::new(&config.node_id);
@@ -56,7 +49,6 @@ impl ProviderNode {
             config,
             task_executor,
             consensus_client: consensus_client_clone,
-            api_server,
             active_tasks: Arc::new(RwLock::new(HashMap::new())),
             stats: Arc::new(RwLock::new(stats)),
             running: Arc::new(RwLock::new(false)),
@@ -71,16 +63,8 @@ impl ProviderNode {
         // 标记为运行状态
         *self.running.write().await = true;
 
-        // 启动 API 服务器
-        let api_server = self.api_server.clone();
-        let api_handle = tokio::spawn(async move {
-            if let Err(e) = api_server.start().await {
-                log_error_with_context("启动 API 服务器失败", &*e);
-            }
-        });
-
         // 启动任务轮询循环
-        // let task_polling_handle = self.start_task_polling_disabled(); // 暂时禁用
+        let task_polling_handle = self.start_task_polling();
 
         // 启动健康检查
         let health_check_handle = self.start_health_checks();
@@ -90,10 +74,9 @@ impl ProviderNode {
 
         // 等待所有任务完成或接收到停止信号
         tokio::select! {
-            _ = api_handle => {
-                log::warn!("API 服务器停止");
+            _ = task_polling_handle => {
+                log::warn!("任务轮询停止");
             }
-            // 任务轮询暂时禁用
             _ = health_check_handle => {
                 log::warn!("健康检查停止");
             }
@@ -119,7 +102,7 @@ impl ProviderNode {
     /// 获取节点状态
     pub async fn get_status(&self) -> ProviderStatus {
         let active_tasks = self.active_tasks.read().await.len();
-        let stats = self.stats.read().await;
+        let _stats = self.stats.read().await;
         let running = *self.running.read().await;
 
         if !running {
@@ -136,56 +119,56 @@ impl ProviderNode {
         self.stats.read().await.clone()
     }
 
-    /// 启动任务轮询循环 (简化版本，避免编译错误)
+    /// 启动任务轮询循环
     fn start_task_polling(&self) -> tokio::task::JoinHandle<()> {
+        // 在函数开始时克隆所有需要的变量，避免循环中的所有权问题
         let consensus_client = self.consensus_client.clone();
         let task_executor = self.task_executor.clone();
         let active_tasks = self.active_tasks.clone();
         let stats = self.stats.clone();
         let config = self.config.clone();
         let running = self.running.clone();
-        let api_server = self.api_server.clone();
+
+        // 保存节点ID用于整个函数
+        let node_id = config.node_id.clone();
+        let max_active_tasks = config.max_active_tasks;
+        let cheating_mode = config.cheating_mode.clone();
 
         tokio::spawn(async move {
-            let config_node_id = config.node_id.clone();
-            let config_max_active_tasks = config.max_active_tasks;
-            let config_cheating_mode = config.cheating_mode.clone();
-
-            log::info!("启动任务轮询循环 for Provider: {}", &config_node_id);
+            log::info!("启动任务轮询循环 for Provider: {}", &node_id);
 
             while *running.read().await {
                 // 检查是否可以接受新任务
                 let active_count = active_tasks.read().await.len();
-                if active_count >= config_max_active_tasks {
-                    log::debug!("Provider {} 已达到最大活跃任务数: {}", &config_node_id, active_count);
+                if active_count >= max_active_tasks {
+                    log::debug!("Provider {} 已达到最大活跃任务数: {}", &node_id, active_count);
                     tokio::time::sleep(Duration::from_millis(1000)).await;
                     continue;
                 }
 
                 // 轮询新任务
                 if let Some(task) = consensus_client.poll_task().await {
-                    log::info!("Provider {} 收到新任务: {}", &config_node_id, task.id);
+                    log::info!("Provider {} 收到新任务: {}", &node_id, task.id);
 
                     // 创建任务执行 - 每次都重新克隆变量
                     let execution = TaskExecution::new(
                         task.clone(),
-                        config_node_id.clone(),
-                        config_cheating_mode.clone(),
+                        node_id.clone(), // 重新克隆
+                        cheating_mode.clone(), // 重新克隆
                     );
 
                     // 添加到活跃任务
                     active_tasks.write().await.insert(task.id.clone(), execution.clone());
 
-                    // 异步执行任务 - 重新克隆所有需要的变量
+                    // 异步执行任务 - 为每个任务克隆所需变量
                     let active_tasks_clone = active_tasks.clone();
                     let stats_clone = stats.clone();
                     let consensus_client_clone = consensus_client.clone();
-                    let api_server_clone = api_server.clone();
                     let task_executor_clone = task_executor.clone();
-                    let config_clone = config.clone(); // 重新克隆config
+                    let config_clone = config.clone();
                     let task_clone = task.clone();
-                    let cheating_mode_clone = config_cheating_mode.clone(); // 重新克隆作弊模式
-                    let node_id_clone = config_node_id.clone(); // 重新克隆节点ID
+                    let cheating_mode_clone = cheating_mode.clone(); // 重新克隆
+                    let node_id_clone = node_id.clone(); // 重新克隆
 
                     tokio::spawn(async move {
                         // 执行任务
@@ -195,7 +178,7 @@ impl ProviderNode {
 
                         // 记录性能
                         log_performance(
-                            &format!("task_execution_{}", task.id),
+                            &format!("task_execution_{}", task_clone.id),
                             execution_time.as_millis() as u64,
                             result.success,
                         );
@@ -215,7 +198,7 @@ impl ProviderNode {
                                 "cheating_detected",
                                 &node_id_clone,
                                 &format!("任务 {} 执行了作弊行为", task_clone.id),
-                                crate::logging::SecuritySeverity::Medium,
+                                SecuritySeverity::Medium,
                             );
                         }
 
@@ -240,28 +223,8 @@ impl ProviderNode {
                             stats.last_task_completed_at = Some(chrono::Utc::now());
                         }
 
-                        // 更新 API 服务器状态
-                        let status_info = ProviderStatusInfo {
-                            provider_id: config_clone.node_id.clone(),
-                            name: config_clone.name.clone(),
-                            status: ProviderStatus::Running,
-                            active_tasks: active_tasks_clone.read().await.len().saturating_sub(1), // 减去当前完成的任务
-                            total_completed_tasks: {
-                                let stats = stats_clone.read().await;
-                                stats.total_tasks_completed
-                            },
-                            cheating_stats: None, // 这里可以添加作弊统计
-                            gpu_memory_gb: config_clone.gpu_memory_gb,
-                            cpu_cores: config_clone.cpu_cores,
-                            last_updated: chrono::Utc::now(),
-                        };
-
-                        api_server_clone.update_provider_status(
-                            config_clone.node_id.clone(),
-                            status_info,
-                        ).await;
-
-                        api_server_clone.add_task_result(result).await;
+                        // 任务执行完成日志
+                        log::info!("Provider {} 完成任务 {} 执行", node_id_clone, task_clone.id);
 
                         // 从活跃任务中移除
                         active_tasks_clone.write().await.remove(&task_clone.id);
@@ -272,14 +235,13 @@ impl ProviderNode {
                 }
             }
 
-            log::info!("任务轮询循环结束 for Provider: {}", &config_node_id);
+            log::info!("任务轮询循环结束 for Provider: {}", node_id);
         })
     }
 
     /// 启动健康检查
     fn start_health_checks(&self) -> tokio::task::JoinHandle<()> {
         let consensus_client = self.consensus_client.clone();
-        let api_server = self.api_server.clone();
         let config = self.config.clone();
         let running = self.running.clone();
 
@@ -314,9 +276,8 @@ impl ProviderNode {
 
     /// 启动统计信息更新
     fn start_stats_updates(&self) -> tokio::task::JoinHandle<()> {
-        let stats = self.stats.clone();
+        let _stats = self.stats.clone();
         let consensus_client = self.consensus_client.clone();
-        let api_server = self.api_server.clone();
         let config = self.config.clone();
         let running = self.running.clone();
 
@@ -328,8 +289,6 @@ impl ProviderNode {
 
                 // 获取共识统计
                 if let Ok(consensus_stats) = consensus_client.get_consensus_stats().await {
-                    api_server.update_consensus_stats(&consensus_stats).await;
-
                     // 记录共识事件
                     log_consensus_event(
                         "stats_update",

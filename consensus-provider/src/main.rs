@@ -1,11 +1,11 @@
 use consensus_provider::*;
-use crate::provider_node::ProviderNode;
-use clap::{App, Arg};
+use consensus_provider::provider_node::ProviderNode;
+use clap::{Arg, Command};
 
 /// 主函数 - Consensus Provider 演示程序
 #[tokio::main]
 async fn main() {
-    let app = App::new("Consensus Provider 模拟器")
+    let app = Command::new("Consensus Provider 模拟器")
         .version(env!("CARGO_PKG_VERSION"))
         .author("去中心化GPU算力共享平台")
         .about("演示多节点算力任务验证共识机制")
@@ -34,14 +34,14 @@ async fn main() {
                 .value_name("ENDPOINT")
                 .help("共识服务器端点")
                 .takes_value(true)
-                .default_value("http://localhost:3333")
+                .default_value("http://localhost:7465")
         );
 
     let matches = app.get_matches();
 
-    let demo_type = matches.value_of("demo").unwrap_or("basic");
-    let config_file = matches.value_of("config").unwrap_or("config/default.json");
-    let server_endpoint = matches.value_of("server").unwrap_or("http://localhost:3000");
+    let demo_type = matches.get_one::<String>("demo").map(|s| s.as_str()).unwrap_or("basic");
+    let config_file = matches.get_one::<String>("config").map(|s| s.as_str()).unwrap_or("config/default.json");
+    let server_endpoint = matches.get_one::<String>("server").map(|s| s.as_str()).unwrap_or("http://localhost:7465");
 
     println!("🚀 Consensus Provider 模拟器 v{}", env!("CARGO_PKG_VERSION"));
     println!("🎭 演示类型: {}", demo_type);
@@ -50,7 +50,7 @@ async fn main() {
     println!();
 
     match demo_type {
-        "basic" => run_basic_demo().await,
+        "basic" => run_basic_demo(server_endpoint).await,
         "multi" => run_multi_provider_demo(config_file, server_endpoint).await,
         "cheating" => run_cheating_demo(config_file, server_endpoint).await,
         "full" => run_full_demo(config_file, server_endpoint).await,
@@ -63,7 +63,7 @@ async fn main() {
 }
 
 /// 基础功能演示
-async fn run_basic_demo() {
+async fn run_basic_demo(server_endpoint: &str) {
     println!("🔧 启动基础功能演示...");
     println!();
 
@@ -77,7 +77,7 @@ async fn run_basic_demo() {
 
     // 3. 测试共识客户端
     println!("🌐 测试共识客户端...");
-    test_consensus_client().await;
+    test_consensus_client(server_endpoint).await;
 
     // 4. 测试Provider节点创建
     println!("🏗️  测试Provider节点...");
@@ -244,7 +244,7 @@ async fn run_full_demo(config_file: &str, server_endpoint: &str) {
     println!("📋 第一阶段: 基础功能测试");
     test_types_and_config().await;
     test_task_executor().await;
-    test_consensus_client().await;
+    test_consensus_client(server_endpoint).await;
     test_provider_node().await;
     println!();
 
@@ -299,8 +299,8 @@ async fn test_types_and_config() {
 }
 
 async fn test_task_executor() {
-    use crate::task_executor::TaskExecutor;
-    use crate::cheating_modes::CheatingMode;
+    use consensus_provider::task_executor::TaskExecutor;
+    use consensus_provider::cheating_modes::CheatingMode;
 
     let executor = TaskExecutor::new();
 
@@ -351,11 +351,11 @@ async fn test_task_executor() {
     println!("✅ 作弊任务执行完成 (返回错误结果: {})", cheating_result.success);
 }
 
-async fn test_consensus_client() {
-    use crate::consensus_client::ConsensusClient;
+async fn test_consensus_client(server_endpoint: &str) {
+    use consensus_provider::consensus_client::ConsensusClient;
 
     // 创建共识客户端（即使服务器不存在也要测试创建过程）
-    match ConsensusClient::new("http://localhost:3000").await {
+    match ConsensusClient::new(server_endpoint).await {
         Ok(mut client) => {
             println!("✅ 共识客户端创建成功");
 

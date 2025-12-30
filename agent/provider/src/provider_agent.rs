@@ -18,6 +18,7 @@ use ya_file_logging::{start_logger, LoggerHandle};
 use ya_manifest_utils::{manifest, Feature};
 
 use crate::config::globals::GlobalsState;
+use crate::consensus::provider_node::ProviderNode; // 新增共识导入
 use crate::dir::clean_provider_dir;
 use crate::events::Event;
 use crate::execution::{ExeUnitDesc, GetExeUnit, GetOfferTemplates, TaskRunner, UpdateActivity};
@@ -84,6 +85,7 @@ pub struct ProviderAgent {
     keystore_monitor: FileMonitor,
     whitelist_monitor: FileMonitor,
     net_api: NetApi,
+    consensus_node: Option<ProviderNode>, // 新增共识节点
 }
 
 impl ProviderAgent {
@@ -114,6 +116,9 @@ impl ProviderAgent {
         }
 
         let api = ProviderApi::try_from(&args.api)?;
+
+        // 提前提取节点名称，避免后续move问题
+        let node_name = args.node.node_name.clone();
 
         log::info!("Loading payment accounts...");
         let account = api.identity.me().await?.identity;
@@ -177,6 +182,24 @@ impl ProviderAgent {
             TaskManager::new(market.clone(), runner.clone(), payments, args.tasks)?.start();
         let net_api = api.net;
 
+        // 创建共识节点（如果启用）
+        let consensus_node = if args.consensus_enabled {
+            log::info!("启用共识功能，冗余级别: {}", args.consensus_redundancy);
+
+            // 创建共识节点配置
+            let consensus_config = crate::consensus::ProviderConfig::new_honest(
+                &format!("provider-{}", node_name.as_deref().unwrap_or("default")),
+                "Consensus-enabled Provider",
+                8.0, // GPU memory (GB)
+                4,   // CPU cores
+            );
+
+            // 创建共识节点
+            Some(ProviderNode::new(consensus_config).await?)
+        } else {
+            None
+        };
+
         Ok(ProviderAgent {
             globals,
             market,
@@ -191,7 +214,18 @@ impl ProviderAgent {
             keystore_monitor,
             whitelist_monitor,
             net_api,
+            consensus_node,
         })
+    }
+
+    /// 检查共识功能是否已启用
+    pub fn is_consensus_enabled(&self) -> bool {
+        self.consensus_node.is_some()
+    }
+
+    /// 获取共识节点引用（如果已启用）
+    pub fn consensus_node(&self) -> Option<&ProviderNode> {
+        self.consensus_node.as_ref()
     }
 
     async fn create_offers(

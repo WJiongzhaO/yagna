@@ -1,5 +1,6 @@
 pub mod cli;
 pub mod config;
+pub mod consensus;
 pub mod dir;
 pub mod display;
 pub mod events;

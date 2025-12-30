@@ -46,14 +46,14 @@ show_help() {
     echo
     echo -e "${YELLOW}选项:${NC}"
     echo "  -c, --config FILE     配置文件路径 (默认: config/default.json)"
-    echo "  -s, --server URL      共识服务器URL (默认: http://localhost:3000)"
+    echo "  -s, --server URL      共识服务器URL (默认: http://localhost:7465)"
     echo "  -h, --help           显示帮助信息"
     echo
     echo -e "${YELLOW}示例:${NC}"
     echo "  $0 basic                    # 基础功能演示"
     echo "  $0 multi                    # 多节点演示"
     echo "  $0 cheating -c config/cheating.json  # 作弊检测演示"
-    echo "  $0 full -s http://192.168.1.100:3000  # 完整演示"
+    echo "  $0 full -s http://192.168.1.100:7465  # 完整演示"
     echo
 }
 
@@ -74,7 +74,7 @@ run_basic_demo() {
 # 多节点演示
 run_multi_demo() {
     local config_file="${1:-config/default.json}"
-    local server_url="${2:-http://localhost:3000}"
+    local server_url="${2:-http://localhost:7465}"
 
     echo -e "${BLUE}🏗️  启动多节点演示${NC}"
     echo "配置文件: $config_file"
@@ -101,7 +101,7 @@ run_multi_demo() {
 # 作弊检测演示
 run_cheating_demo() {
     local config_file="${1:-config/cheating.json}"
-    local server_url="${2:-http://localhost:3000}"
+    local server_url="${2:-http://localhost:7465}"
 
     echo -e "${BLUE}🎭 启动作弊检测演示${NC}"
     echo "配置文件: $config_file"
@@ -127,7 +127,7 @@ run_cheating_demo() {
 # 完整演示
 run_full_demo() {
     local config_file="${1:-config/default.json}"
-    local server_url="${2:-http://localhost:3000}"
+    local server_url="${2:-http://localhost:7465}"
 
     echo -e "${BLUE}🎊 启动完整功能演示${NC}"
     echo "配置文件: $config_file"
@@ -147,7 +147,7 @@ run_full_demo() {
 parse_args() {
     DEMO_TYPE="basic"
     CONFIG_FILE="config/default.json"
-    SERVER_URL="http://localhost:3000"
+    SERVER_URL="http://localhost:7465"
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -211,3 +211,5 @@ main() {
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"
 fi
+
+

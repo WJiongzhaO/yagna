@@ -41,7 +41,7 @@ impl ProviderNode {
         let task_executor = TaskExecutor::new();
 
         // 创建共识客户端
-        let consensus_client = ConsensusClient::new("http://localhost:3000").await?;
+        let consensus_client = ConsensusClient::new("http://localhost:7465").await?;
         let mut consensus_client_clone = consensus_client.clone();
         consensus_client_clone.register_provider(&config.node_id).await?;
 

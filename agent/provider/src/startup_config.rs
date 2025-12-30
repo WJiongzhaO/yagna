@@ -248,6 +248,12 @@ pub struct RunConfig {
     ///changes log level from info to debug
     #[structopt(long)]
     pub debug: bool,
+    /// Enable consensus verification for tasks
+    #[structopt(long)]
+    pub consensus_enabled: bool,
+    /// Consensus redundancy level (number of providers to verify each task)
+    #[structopt(long, default_value = "3")]
+    pub consensus_redundancy: usize,
 }
 
 #[derive(StructOpt, Clone, Debug)]
