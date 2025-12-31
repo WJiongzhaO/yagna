@@ -47,12 +47,16 @@ itertools = "0.10"
 lazy_static = "1.4.0"
 libc = "0.2"
 log = "0.4"
+ndarray = "0.15"  # 用于共识计算
 log-derive = "0.4"
 notify = "4.0.15"
 num_cpus = "1.13.0"
 num-traits = "0.2.14"
 openssl.workspace = true
 path-clean = "0.1.0"
+rand = "0.8"  # 用于共识模块的随机数生成
+uuid = { version = "0.8", features = ["v4"] }  # 用于生成唯一ID
+env_logger = "0.9"  # 用于日志系统
 regex = "1.5"
 semver = { version = "0.11", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
