@@ -1,0 +1,73 @@
+{
+  "consensus": {
+    "server_endpoint": "http://localhost:7465",
+    "task_timeout_seconds": 300,
+    "max_concurrent_tasks": 3
+  },
+  "providers": [
+    {
+      "node_id": "provider-1",
+      "name": "Honest Provider",
+      "cheating_mode": null,
+      "api_port": 8081,
+      "gpu_memory_gb": 8,
+      "cpu_cores": 4
+    },
+    {
+      "node_id": "provider-2-cheater",
+      "name": "Dishonest Provider (Wrong Result)",
+      "cheating_mode": "WrongResult",
+      "api_port": 8082,
+      "gpu_memory_gb": 8,
+      "cpu_cores": 4
+    },
+    {
+      "node_id": "provider-3-delayer",
+      "name": "Dishonest Provider (Delay)",
+      "cheating_mode": {
+        "Delay": {
+          "min_ms": 1000,
+          "max_ms": 5000
+        }
+      },
+      "api_port": 8083,
+      "gpu_memory_gb": 8,
+      "cpu_cores": 4
+    },
+    {
+      "node_id": "provider-4-terminator",
+      "name": "Dishonest Provider (Early Termination)",
+      "cheating_mode": {
+        "EarlyTermination": {
+          "probability": 0.3
+        }
+      },
+      "api_port": 8084,
+      "gpu_memory_gb": 8,
+      "cpu_cores": 4
+    }
+  ],
+  "task_types": {
+    "matrix_multiplication": {
+      "default_size": 100,
+      "max_size": 1000,
+      "min_size": 10
+    },
+    "vector_addition": {
+      "default_size": 1000,
+      "max_size": 10000,
+      "min_size": 100
+    },
+    "simple_inference": {
+      "default_model_size": 50,
+      "max_model_size": 500,
+      "min_model_size": 10
+    }
+  },
+  "logging": {
+    "level": "info",
+    "file_enabled": true,
+    "file_path": "logs/consensus-provider.log"
+  }
+}
+
